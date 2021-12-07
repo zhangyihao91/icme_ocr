@@ -63,18 +63,26 @@ In our pipeline, we raise 5 parts to help the users shown as Fig.1: Detection, F
 	\caption{Architecture of pipeline}
 \end{figure}
 
-\section{Dataset}
+\section{Data analysis}
 
-The data-set we used was provided by our cooperate company -GLORY.ltd. This excellent data-set includes over thousands of images for the Scene Text Recognition task. In each image, there exists several carton boxes in a warehouse. Types of text information were printed on the carton boxes such as QR Code, Japanese characters, cargo volume and our target text: Date. Each image corresponding to only one valid date label shown as Fig.2
+The original data we have consist of 1000 images for our Scene Text Recognition task, which was provided by our cooperate company -GLORY.ltd. In each image, there exists one or several carton boxes in a warehouse. Types of text information were printed on the carton boxes such as QR Code, Japanese characters, cargo volume and our target text: Date.
+All the images has been manually labeled with several bounding boxes and text information annotations:date or non-date shown as Fig.3.
 
-\begin{figure}[ht] \centering    
-	\label{dataset}     
-	\includegraphics[width=0.8\columnwidth]{dataset.png}  
-   
-	\caption{one image in dataset and its date label}
+Based on the bounding boxes and annotations, we built a dataset used for the following several sections. This dataset contains over thousands of boxes, each box corresponds to an annotation. If the annotation is date, there would also exist a valid date text as the label.
+
+\begin{figure}[ht] \centering
+	\label{dataset}
+	\includegraphics[width=0.8\columnwidth]{dataset.png}
+	\caption{original image sample and a bounding box with corresponding label of date}
 \end{figure}
 
-The difficulty for this task were mostly about the format of date: How to correctly filter the useless information and recognize the pattern and digital of the dates then translate it into text. To solve those problem, we developed the following pipeline.
+\begin{figure}[ht] \centering
+	\label{filtering}
+	\includegraphics[width=0.8\columnwidth]{filter.png}
+	\caption{date boxes (left) and non-date boxes (right) in filtering dataset}
+\end{figure}
+
+The difficulty for recognizing the date on the original image mainly existed in two parts:First is how to correctly filter the useless information like QR Code, second is recognizing the digital of date and translate it. To solve those problem, we developed the following pipeline.
 
 \section{Proposed Pipeline/Methodology}
 
@@ -146,41 +154,123 @@ To built a high accuracy Scene Text Recognition system, we set a series of exper
 
 \subsection{Experiment Environment}
 
-We simply use 4 GTX 1080Ti GPUs with 12 GBs for pre-training and fine-tuning. For the OCR models, the batch size is all set to 192, the optimizer, learning rate, loss function. For the filtering models....(Maybe present this part in a table is better?)
+We simply use 4 GTX 1080Ti GPUs with 12 GBs for pre-training and fine-tuning for all the experiments. 
+The Table.1 present the experiment parameter details in our paper.
+
+\begin{table}[]
+\centering
+\begin{tabular}{l|l|l}
+               & Filtering & Recognition \\ \hline
+Baseline Model & ResNet-50 & STAR-Net    \\ \hline
+Batch Size     & 256       & 192         \\ \hline
+Optimizer      & SGD       & Adadelta    \\ \hline
+Loss Function  & CE Loss   & CE Loss     \\ \hline
+Learning Rate  & 0.01      & 1           \\ \hline
+Training Epoch & 60        & 150         \\ 
+\end{tabular}
+\caption{Experiment settings}
+\label{Experiment settings}
+\end{table}
 
 \subsection{Filtering model Training}
 
-In this part, our goal is to remove the non-date images from all of the cropped images that are processed in the detection part. To archive this goal, we train a binary classifier specifically to do this filtering. Here we choose ResNet-50 as the main architecture. 
+In this part, we trained a binary classifier specifically to do this filtering task. Here we choose ResNet-50 as the main architecture. For this dataset, we randomly choose $85\%$ as the training set and $15\%$ as the validation set, then training the model on the training set from the initial weight. After 60 epochs, the test accuracy has archived $99.8\%$ shown as fig.8. This result is good enough to remove almost all the non-date boxes.
 
-Fig.7 is the evaluation accuracy curve of classifier. the final result archived 99.8%
+\begin{figure}[ht] \centering    
+	\label{filtering model}     
+	\includegraphics[width=0.8\columnwidth]{filtering model.png}  
+	\caption{validation accuracy of filtering model}
+\end{figure}
 
 \subsection{Date Recognition Experiments}
 
-2parts: 1. setting a series of experiments to choose the best baseline model.
-2. recognition with or without punctuation and CTC or Attn.\par
+In the date recognition part, we set up two sets experiments to achieve the highest recognition accuracy.
 
-Introduce the definition of Separator and corresponding separator strategy.\par
+\subsubsection{Baseline model comparison}
 
-Fig.8 is the bar plot of several baseline model: x axis is E-OCR, Rosetta, STAR-Net, and y axis is accuracy.\par
+To start the process of date recognition, we selected several existing OCR models. We verified the performance of these models on our dataset based on pre-trained models and without fine-tuning, then finally selected the best one as our baseline model.The Fig.9 present the validation accuracy of different model.
 
-Table.2 accuracy of different combination with prediction module and separator strategy.
+\begin{figure}[ht] \centering
+	\label{baseline model}     
+	\includegraphics[width=0.8\columnwidth]{baseline model.png}  
+	\caption{validation accuracy of baseline OCR model without fine-tuning}
+\end{figure}
+
+In this figure, pytesseract is a traditional OCR model developed by HP Labs and now maintained by Google, while EasyOCR and Rosseta are two general wild OCR models. Meanwhile, the second most effective model is STAR-Net, developed by Wei Liu et al. in 2016. the final best model was optimized in 2019 by Jeonghun Beak et al. by replacing the Connectionist Temporal Classification (CTC) in the STAR-Net model. Classification (CTC) was replaced with Attention-based Sequence Prediction (Attn).
+
+Both models achieved the best results in the paper:"What Is Wrong With Scene Text Recognition Model Comparisons?Dataset and Model Analysis", based on the generic datasets: MJSynth [Max et al., 2014] , SynthText [Ankush et al.2016]. So to distinguish these two models, we will refer to them as State-Of-The-Art 1 and State-Of-The-Art 2, respectively.
+
+Based on this result, our next experiments will use STAR-Net as a baseline
+
+\subsubsection{Separator Strategy}
+
+In our dataset, many dates correspond to labels that contain many punctuation marks or Japanese kanji in addition to numbers. Therefore, when starting the recognition task, we assume two cases to recognize date images: the first one is to ignore all punctuation marks and replace all labels in the training set with a special separator Sep to match the punctuation and kanji, and then fine-tune our model based on the new labels, which we call the first strategy One-Sep strategy. the second one is to recognize all We call the first strategy One-Sep strategy. The second one recognizes all punctuation marks, keeping the original labels for each one, and fine-tunes the model based on them, which we call All-Sep strategy.
+
+Based on the 2 strategies and 2 models SOTA1 and SOTA2, we did 4 experiments with the same parameters, and the f Table.2 shows the results of the experiments. 
+
+\begin{table}[]
+\centering
+\begin{tabular}{l|l|l|l}
+        & SOTA1 & SOTA2 &   \\ \hline
+One-Sep & 0.858 & 0.863 &   \\ \hline
+All-Sep & 0.866 & 0.880 &   \\ 
+\end{tabular}
+\caption{Separator Experiment Results}
+\label{Separator Experiments}
+\end{table}
 
 \subsection{Error Analysis}
 
-Present the plots of different types of errors and analyze them separately. 
-1. Pattern Error
-2. Invalid Date 
-3. blur images difficult to recognize
-4. Ground-truth error.\par
+In the previous sub-section, we obtained the highest recognition rate as $88\%$. In addition to the experiments mentioned in this paper, we also fine-tuned some of the parameters in the experiments, but it did not lead to a significant improvement in the recognition rate. Therefore, we performed an error analysis for the SOTA2+All-sep experiments and summarized the wrong predictions into several aspects, as Fig.10-Fig13 shown.
 
-Fig.9 present images of 4 types error and their labels
+\begin{figure}[ht] \centering    
+	\label{pattern errors}     
+	\includegraphics[width=0.8\columnwidth]{pattern.png}
+	\caption{Pattern Errors}
+\end{figure}
+
+\begin{figure}[ht] \centering    
+	\label{number errors}     
+	\includegraphics[width=0.8\columnwidth]{number.png}
+	\caption{Number Errors}
+\end{figure}
+
+\begin{figure}[ht] \centering    
+	\label{separator errors}     
+	\includegraphics[width=0.8\columnwidth]{separator.png}
+	\caption{Separator Errors}
+\end{figure}
+
+\begin{figure}[ht] \centering    
+	\label{special sample}     
+	\includegraphics[width=0.8\columnwidth]{special sample.png}
+	\caption{Special Sample}
+\end{figure}
+
+For the above four types of errors, the first pattern error and the second number error mainly originate from the recognition process, the image is too blurred and not easy to fix, the third separator error is also caused by the image quality, but can be completely fixed by Regular Expression Parsing, and the fourth special The fourth special case is difficult to fix, but the number of this case is small enough to be ignored.
+
+So in the next sub-section, we will focus our attention on the first and second types of errors
 
 \subsection{Proposed Method}
 
-Some errors(Error type.1 and type.2) outputed by the model do not correspond to the valid date(2021.11.37)  , by given a correctly defined regex, the model can exclude such prediction from the set of possible output. and output the highest probability sequence that matches the regular expression.\par
+The type 1 and 2 errors usually do not correspond to the valid date shown as Fig.10. These types of errors are difficult to be parsed by Regular Expression due to the missing numbers or misplaced separators.
+Therefore, we hope to apply the function of parsing to the recognition process of the model by using parsing to filter out those predictions that do not conform to the Regular Expression then output the highest probability sequence that matches the Regular Expression.\par
 
-Table.3 Here illustrates the fixed errors
+In our recognition model, the sequence model gives a probability matrix before outputting the final prediction, which corresponds to the sequence length of the predicted text and the probability of each time-step on the sequence corresponding to all elements in the dictionary. In the original STAR-Net model, the authors directly used the Greedy decoding strategy which means each time-step on the sequence is directly selected as the character of the time-step with the highest probability. However, for our method, the text sequence with the highest probability selected by this decoding strategy does not match the Regular Expression, and we want to use the parsing process to filter all possible text sequences. Therefore, we use the idea of beam search in the process of decoding. After getting all the sequences corresponding to the prediction results, we convert them directly into text format as the combination of digital and separator, and parse them by Regular Expression. The texts that can be parsed are retained, while the others are removed, and finally, for all the texts that pass parsing, we select the most probable one as the final output of the model.
 
+In this way, we improved the accuracy of the recognition model from $88.8\%$ to $91\%$. The fixed prediction is shown in the Table.3 below.
+
+\begin{table}[]
+\centering
+\begin{tabular}{c|c|c|c}
+  & Errors     & Label      & Fixed Errors \\ \hline
+1 & 210.02     & 21.02.02   & 2021/02/02   \\ \hline
+2 & 2021.03.77 & 2021.03.07 & 2021/03/07   \\ \hline
+3 & 2021133    & 202113     & 2021/01/03        
+\end{tabular}
+\caption{errors fixed by our methods}
+\label{fixed errors}
+\end{table}
 \section{Related work(unfinished)}
 
 details of traditional OCR system \par
